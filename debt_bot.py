@@ -98,8 +98,8 @@ class PollBot:
         transactions = self.db['transactions']
         transactions.insert(transaction)
 
-        msg = self.bidir_format("You gave {} {}.",
-                                "{} gave you {}.",
+        msg = self.bidir_format("You gave {} {:.2f}.",
+                                "{} gave you {:.2f}.",
                                 recipient['first_name'],
                                 amount)
         msg += "\n\n"
@@ -127,8 +127,8 @@ class PollBot:
         debt = self.get_debt(uid1, uid2)
         if debt == 0:
             return "You and {} are {}even.".format(name, word)
-        return self.bidir_format("{} " + word + "owes you {}.",
-                                 "You " + word + "owe {} {}.",
+        return self.bidir_format("{} " + word + "owes you {:.2f}.",
+                                 "You " + word + "owe {} {:.2f}.",
                                  name,
                                  debt)
 
@@ -150,8 +150,8 @@ class PollBot:
         for item in history:
             if 'timestamp' in item and item['timestamp']:
                 string += item['timestamp'].split()[0]
-            string += self.bidir_format(":  You gave {} {}",
-                                        ":  {} gave you {}",
+            string += self.bidir_format(":  You gave {} {:.2f}",
+                                        ":  {} gave you {:.2f}",
                                         name,
                                         item['amount'] if item['creditor'] == uid1 else -item['amount'])
             if 'reason' in item and item['reason']:
