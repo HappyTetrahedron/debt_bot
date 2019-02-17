@@ -5,7 +5,6 @@ import re
 import yaml
 import logging
 import dataset
-import json
 import datetime
 from telegram.ext import Updater, CommandHandler, MessageHandler
 
