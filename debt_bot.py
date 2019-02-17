@@ -58,7 +58,8 @@ class PollBot:
     def get_affirmation(self):
         return random.choice(AFFIRMATIONS)
 
-    def parse_message(self, message):
+    @staticmethod
+    def parse_message(message):
         match = PATTERN.match(message)
         if not match:
             return False, False, False
