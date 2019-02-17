@@ -157,6 +157,9 @@ class PollBot:
             if 'reason' in item and item['reason']:
                 string += " for {}".format(item['reason'])
             string += ".\n"
+
+        if not string:
+            return "You and {} don't have any transactions so far.".format(name)
         return string
 
     def get_all_debts(self, uid):
@@ -179,7 +182,8 @@ class PollBot:
             if 'even' not in str:
                 summary += str
                 summary += "\n"
-
+        if not summary:
+            return "Congratulations! You currently don't have any debts."
         return summary
 
     def bidir_format(self, str1, str2, name, amount):
