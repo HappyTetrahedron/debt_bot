@@ -213,6 +213,8 @@ class PollBot:
                                       "the transaction history.")
             return
         username = arguments[1]
+        if username.startswith('@'):
+            username = username[1:]
         recipient = self.get_user_by_name(username)
         if not recipient:
             update.message.reply_text("Sorry, I don't know who {} is.".format(username))
@@ -229,6 +231,8 @@ class PollBot:
 
         if len(arguments) > 1:
             username = arguments[1]
+            if username.startswith('@'):
+                username = username[1:]
             recipient = self.get_user_by_name(username)
             if not recipient:
                 update.message.reply_text("Sorry, I don't know who {} is.".format(username))
