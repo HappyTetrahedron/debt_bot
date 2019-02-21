@@ -105,7 +105,16 @@ class PollBot:
         msg += "\n\n"
 
         msg += self.get_debt_string(sender.id, recipient['user_id'], recipient['first_name'], 'now')
-        return msg
+
+        other = self.bidir_format("{} got {:.2f} from you.",
+                                  "{} gave you {:.2f}.",
+                                  sender.first_name,
+                                  -amount)
+        other += "\n\n"
+
+        other += self.get_debt_string(recipient['user_id'], sender.id, sender.first_name, 'now')
+
+        return msg, recipient['user_id'], other
 
     def get_debt(self, uid1, uid2):
         transactions = self.db['transactions']
@@ -248,7 +257,8 @@ class PollBot:
 
     def handle_message(self, bot, update):
         self.register_user(update.message.from_user)
-        reply = self.analyze_message(update.message.text, update.message.from_user)
+        reply, other_user_id, other_notification = self.analyze_message(update.message.text, update.message.from_user)
+        bot.send_message(chat_id=other_user_id, text=other_notification)
         update.message.reply_text(reply)
 
     # Help command handler
