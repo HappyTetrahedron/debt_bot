@@ -134,11 +134,13 @@ class PollBot:
 
         msg += self.get_debt_string(sender.id, recipient['user_id'], recipient['first_name'], 'now')
 
-        other = self.bidir_format("{} got {:.2f} from you.",
-                                  "{} gave you {:.2f}.",
+        other = self.bidir_format("{} got {:.2f} from you",
+                                  "{} gave you {:.2f}",
                                   sender.first_name,
                                   -amount)
-        other += "\n\n"
+        if reason:
+            other += " for {}".format(reason)
+        other += ".\n\n"
 
         other += self.get_debt_string(recipient['user_id'], sender.id, sender.first_name, 'now')
 
