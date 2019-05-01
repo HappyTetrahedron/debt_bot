@@ -6,7 +6,8 @@ import yaml
 import logging
 import dataset
 import datetime
-from telegram.ext import Updater, CommandHandler, MessageHandler
+from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryHandler
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
@@ -22,6 +23,7 @@ I_GIVE_X_PATTERN = re.compile(
     'i?\s*(g[ia]ve|owe[sd]?)\s+@?(\S+)\s+(-?\d+\.?\d*)\s*(?:because(?:\s+of)?|for)?\s*(.*)',
     flags=re.I
 )
+# This will falsely match the "I gave X to Y" pattern as well, so match the other one before this
 X_TO_ME_PATTERN = re.compile(
     '\s*@?(\S+)\s+(g[ia]ve|g[eo]t|owe[sd]?)\s+(?:me)?\s*(-?\d+\.?\d*)(?:\s+(?:to|from)?\s*me\s*)?\s*(?:because(?:\s+of)?|for)?\s*(.*)',
     flags=re.I
@@ -40,6 +42,10 @@ AFFIRMATIONS = [
     "Wonderful",
     "Splendid",
 ]
+
+HISTORY_CMD = "h"
+DEBT_CMD = "d"
+GENERAL_CMD = "g"
 
 
 class PollBot:
@@ -106,19 +112,51 @@ class PollBot:
     def analyze_message(self, message, sender):
         amount, recipient_str, reason = self.parse_message(message)
         if not recipient_str:
-            return "Sorry, I could not understand your message at all :(", None, None
+            return "Sorry, I could not understand your message at all :(", None, None, None
         users = self.db['users']
         recipient = users.find_one(username_lower=recipient_str.lower())
 
         if not recipient:
-            return "Sorry, I don't know who {} is. Maybe you have to ask them to register?".format(recipient_str), None, None
+            callback_data = ":{}:{}".format(amount, reason)
+            msg, markup = self.find_potential_recipients(recipient_str, GENERAL_CMD + ":{}" + callback_data)
 
+            if not msg:
+                return "Sorry, I don't know who {} is. Maybe you have to ask them to register?".format(recipient_str), None, None, None
+
+            return msg, None, None, markup
+
+        return self.make_transaction(sender, recipient, amount, reason), None
+
+    def find_potential_recipients(self, recipient_str, callback_data):
+        potential_recipients = self.db.query("SELECT * FROM users "
+                                             "WHERE first_name LIKE '{}%' "
+                                             "OR last_name LIKE '{}%' "
+                                             "OR first_name + ' ' + last_name LIKE '{}%'".format(
+            recipient_str, recipient_str, recipient_str
+        ))
+
+        buttons = []
+        for row in potential_recipients:
+            buttons.append([
+                InlineKeyboardButton("{} {}".format(row['first_name'], row['last_name']),
+                                     callback_data=callback_data.format(
+                                         row['user_id']
+                                     ))
+            ])
+        if len(buttons) == 0:
+            return None, None
+        buttons.append([InlineKeyboardButton("None of these people", callback_data=callback_data.format('0'))])
+        markup = InlineKeyboardMarkup(buttons)
+        return "{} doesn't appear to be a valid username, but I found some people that could be them. \n" \
+               "Please select them from below:".format(recipient_str), markup
+
+    def make_transaction(self, sender, recipient, amount, reason):
         transaction = {
             'creditor': sender.id if amount > 0 else recipient['user_id'],
             'debitor': recipient['user_id'] if amount > 0 else sender.id,
             'amount': abs(amount),
             'reason': reason,
-            'timestamp': datetime.datetime.now()
+            'timestamp': datetime.datetime.now(),
         }
 
         transactions = self.db['transactions']
@@ -256,14 +294,23 @@ class PollBot:
             username = username[1:]
         recipient = self.get_user_by_name(username)
         if not recipient:
-            update.message.reply_text("Sorry, I don't know who {} is.".format(username))
+            msg, markup = self.find_potential_recipients(username, HISTORY_CMD + ':{}')
+            if not msg:
+                update.message.reply_text("Sorry, I don't know who {} is.".format(username))
+                return
+            update.message.reply_text(msg, reply_markup=markup)
             return
-        msg = self.get_debt_history_string(update.message.from_user.id,
+
+        msg = self.compose_history(update.message.from_user, recipient)
+        update.message.reply_text(msg)
+
+    def compose_history(self, sender, recipient):
+        msg = self.get_debt_history_string(sender.id,
                                            recipient['user_id'],
                                            recipient['first_name'])
         msg += '\n'
-        msg += self.get_debt_string(update.message.from_user.id, recipient['user_id'], recipient['first_name'])
-        update.message.reply_text(msg)
+        msg += self.get_debt_string(sender.id, recipient['user_id'], recipient['first_name'])
+        return msg
 
     def handle_debts(self, bot, update):
         arguments = update.message.text.split()
@@ -274,28 +321,84 @@ class PollBot:
                 username = username[1:]
             recipient = self.get_user_by_name(username)
             if not recipient:
-                update.message.reply_text("Sorry, I don't know who {} is.".format(username))
+                msg, markup = self.find_potential_recipients(username, DEBT_CMD + ':{}')
+                if not msg:
+                    update.message.reply_text("Sorry, I don't know who {} is.".format(username))
+                    return
+                update.message.reply_text(msg, reply_markup=markup)
                 return
-            msg = self.get_debt_string(update.message.from_user.id,
-                                       recipient['user_id'],
-                                       recipient['first_name'],
-                                       'currently')
+            msg = self.compose_debt(update.message.from_user, recipient)
             update.message.reply_text(msg)
             return
 
         update.message.reply_text(self.get_all_debts(update.message.from_user.id))
+
+    def compose_debt(self, sender, recipient):
+        msg = self.get_debt_string(sender.id,
+                                   recipient['user_id'],
+                                   recipient['first_name'],
+                                   'currently')
+        return msg
+
+    def handle_inline_button(self, bot, update):
+        query = update.callback_query
+        data = update.callback_query.data
+        data = data.split(':', 3)
+
+        cmd = data[0]
+        userid = data[1]
+
+        message_id = query.message.message_id
+        chat_id = query.message.chat.id
+
+        if userid == '0':
+            query.answer("Action cancelled")
+            bot.edit_message_text(text="Looks like the person you wanted to find isn't registered :(",
+                                  message_id=message_id,
+                                  chat_id=chat_id)
+            return
+
+        users = self.db['users']
+        recipient = users.find_one(user_id=userid)
+        if not recipient:
+            query.answer("Uh oh, something went pretty wrong here")
+            return
+
+        if cmd == GENERAL_CMD:
+            if len(data) < 4:
+                query.answer("Something's wrong with this button.")
+                return
+
+            amount = float(data[2])
+            reason = data[3]
+
+            reply, other_user_id, other_notification = self.make_transaction(query.from_user, recipient, amount, reason)
+
+            if other_user_id is None:
+                query.answer("Oh no, something went wrong")
+                return
+
+            bot.send_message(chat_id=other_user_id, text=other_notification)
+
+        if cmd == HISTORY_CMD:
+            reply = self.compose_history(query.from_user, recipient)
+
+        if cmd == DEBT_CMD:
+            reply = self.compose_debt(query.from_user, recipient)
+
+        bot.edit_message_text(text=reply, message_id=message_id, chat_id=chat_id)
 
     def handle_message(self, bot, update):
         if update.message.text is None:
             update.message.reply_text(self.get_affirmation())
             return
         self.register_user(update.message.from_user)
-        reply, other_user_id, other_notification = self.analyze_message(update.message.text, update.message.from_user)
+        reply, other_user_id, other_notification, markup = self.analyze_message(update.message.text, update.message.from_user)
         if other_user_id is None:
-            update.message.reply_text(reply)
+            update.message.reply_text(reply, reply_markup=markup)
             return
         bot.send_message(chat_id=other_user_id, text=other_notification)
-        update.message.reply_text(reply)
+        update.message.reply_text(reply, reply_markup=markup)
 
     # Help command handler
     def handle_help(self, bot, update):
@@ -342,6 +445,8 @@ class PollBot:
         dp.add_handler(CommandHandler("history", self.handle_history))
 
         dp.add_handler(CommandHandler("help", self.handle_help))
+
+        dp.add_handler(CallbackQueryHandler(self.handle_inline_button))
 
         dp.add_error_handler(self.handle_error)
 
