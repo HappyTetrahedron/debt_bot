@@ -13,12 +13,17 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 logger = logging.getLogger(__name__)
 
-PATTERN = re.compile(
-    'i?\s*(g[ia]ve|g[eo]t)\s+(-?\d+\.?\d*)\s+(?:to|from)?\s*@?(\S+)\s*(?:because(?:\s+of)?|for)?\s*(.*)',
+# Match this first, because the other regex will capture stuff that should be parsed by this one.
+I_TO_X_PATTERN = re.compile(
+    'i?\s*(g[ia]ve|g[eo]t|owe[sd]?)\s+(-?\d+\.?\d*)\s+(?:to|from)?\s*@?(\S+)\s*(?:because(?:\s+of)?|for)?\s*(.*)',
+    flags=re.I
+)
+X_TO_ME_PATTERN = re.compile(
+    '\s*@?(\S+)\s+(g[ia]ve|g[eo]t|owe[sd]?)\s+(?:me)?\s*(-?\d+\.?\d*)(?:\s+(?:to|from)?\s*me\s*)?\s*(?:because(?:\s+of)?|for)?\s*(.*)',
     flags=re.I
 )
 
-RECEIVE_PATTERN = re.compile('g[eo]t', re.I)
+RECEIVE_PATTERN = re.compile('g[eo]t|owe[sd]?', re.I)
 
 AFFIRMATIONS = [
     "Cool",
@@ -55,22 +60,30 @@ class PollBot:
             return True
         return False
 
-    def get_affirmation(self):
+    @staticmethod
+    def get_affirmation():
         return random.choice(AFFIRMATIONS)
 
     @staticmethod
     def parse_message(message):
-        match = PATTERN.match(message)
-        if not match:
-            return False, False, False
-
-        groups = match.groups()
-        direction = groups[0]
-        amount_str = groups[1]
-        recipient = groups[2]
-        reason = groups[3]
-
-        amount = float(amount_str)
+        match = I_TO_X_PATTERN.match(message)
+        if match:
+            groups = match.groups()
+            direction = groups[0]
+            amount_str = groups[1]
+            recipient = groups[2]
+            reason = groups[3]
+            amount = float(amount_str)
+        else:
+            match = X_TO_ME_PATTERN.match(message)
+            if not match:
+                return None, None, None
+            groups = match.groups()
+            direction = groups[1]
+            amount_str = groups[2]
+            recipient = groups[0]
+            reason = groups[3]
+            amount = float(amount_str) * -1  # direction in the regex is reversed, so unreverse here for uniformity
 
         if RECEIVE_PATTERN.match(direction):
             amount *= -1
@@ -80,12 +93,12 @@ class PollBot:
     def analyze_message(self, message, sender):
         amount, recipient_str, reason = self.parse_message(message)
         if not recipient_str:
-            return "Sorry, I could not understand your message at all :("
+            return "Sorry, I could not understand your message at all :(", None, None
         users = self.db['users']
         recipient = users.find_one(username_lower=recipient_str.lower())
 
         if not recipient:
-            return "Sorry, I don't know who {} is. Maybe you have to ask them to register?".format(recipient_str)
+            return "Sorry, I don't know who {} is. Maybe you have to ask them to register?".format(recipient_str), None, None
 
         transaction = {
             'creditor': sender.id if amount > 0 else recipient['user_id'],
@@ -98,11 +111,13 @@ class PollBot:
         transactions = self.db['transactions']
         transactions.insert(transaction)
 
-        msg = self.bidir_format("You gave {} {:.2f}.",
-                                "{} gave you {:.2f}.",
+        msg = self.bidir_format("You gave {} {:.2f}",
+                                "{} gave you {:.2f}",
                                 recipient['first_name'],
                                 amount)
-        msg += "\n\n"
+        if reason:
+            msg += " for {}".format(reason)
+        msg += ".\n\n"
 
         msg += self.get_debt_string(sender.id, recipient['user_id'], recipient['first_name'], 'now')
 
@@ -256,8 +271,14 @@ class PollBot:
         update.message.reply_text(self.get_all_debts(update.message.from_user.id))
 
     def handle_message(self, bot, update):
+        if update.message.text is None:
+            update.message.reply_text(self.get_affirmation())
+            return
         self.register_user(update.message.from_user)
         reply, other_user_id, other_notification = self.analyze_message(update.message.text, update.message.from_user)
+        if other_user_id is None:
+            update.message.reply_text(reply)
+            return
         bot.send_message(chat_id=other_user_id, text=other_notification)
         update.message.reply_text(reply)
 
@@ -270,7 +291,8 @@ class PollBot:
                    "(given they are also registered), and I will keep track of who owes money to whom. \n\n" \
                    "Example: \n" \
                    "I gave 15 to bob14 for pizza \n" \
-                   "I got 12.30 from bob14 for the cinema ticket\n\n" \
+                   "bob14 owes me 40 for groceries \n" \
+                   "bob14 gave me 12.30 for the cinema ticket\n\n" \
                    "Please use the other person's username, or @mention them. People who don't have an " \
                    "username are currently not supported, unfortunately.\n\n" \
                    "To see all your debts, use: /debts\n" \
