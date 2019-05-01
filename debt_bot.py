@@ -13,9 +13,13 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 logger = logging.getLogger(__name__)
 
-# Match this first, because the other regex will capture stuff that should be parsed by this one.
+# Match this first, because the X_TO_ME regex will capture stuff that should be parsed by this one.
 I_TO_X_PATTERN = re.compile(
     'i?\s*(g[ia]ve|g[eo]t|owe[sd]?)\s+(-?\d+\.?\d*)\s+(?:to|from)?\s*@?(\S+)\s*(?:because(?:\s+of)?|for)?\s*(.*)',
+    flags=re.I
+)
+I_GIVE_X_PATTERN = re.compile(
+    'i?\s*(g[ia]ve|owe[sd]?)\s+@?(\S+)\s+(-?\d+\.?\d*)\s*(?:because(?:\s+of)?|for)?\s*(.*)',
     flags=re.I
 )
 X_TO_ME_PATTERN = re.compile(
@@ -76,14 +80,23 @@ class PollBot:
             amount = float(amount_str)
         else:
             match = X_TO_ME_PATTERN.match(message)
-            if not match:
-                return None, None, None
-            groups = match.groups()
-            direction = groups[1]
-            amount_str = groups[2]
-            recipient = groups[0]
-            reason = groups[3]
-            amount = float(amount_str) * -1  # direction in the regex is reversed, so unreverse here for uniformity
+            if match:
+                groups = match.groups()
+                direction = groups[1]
+                amount_str = groups[2]
+                recipient = groups[0]
+                reason = groups[3]
+                amount = float(amount_str) * -1  # direction in the regex is reversed, so unreverse here for uniformity
+            else:
+                match = I_GIVE_X_PATTERN.match(message)
+                if not match:
+                    return None, None, None
+                groups = match.groups()
+                direction = groups[0]
+                amount_str = groups[2]
+                recipient = groups[1]
+                reason = groups[3]
+                amount = float(amount_str)
 
         if RECEIVE_PATTERN.match(direction):
             amount *= -1
