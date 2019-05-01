@@ -138,7 +138,8 @@ class PollBot:
         buttons = []
         for row in potential_recipients:
             buttons.append([
-                InlineKeyboardButton("{} {}".format(row['first_name'], row['last_name']),
+                InlineKeyboardButton("{} {}".format(row['first_name'] if row['first_name'] else "",
+                                                    row['last_name'] if row['last_name'] else ""),
                                      callback_data=callback_data.format(
                                          row['user_id']
                                      ))
