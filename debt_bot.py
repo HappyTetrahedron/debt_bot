@@ -411,8 +411,8 @@ class PollBot:
                    "I gave 15 to bob14 for pizza \n" \
                    "bob14 owes me 40 for groceries \n" \
                    "bob14 gave me 12.30 for the cinema ticket\n\n" \
-                   "Please use the other person's username, or @mention them. People who don't have an " \
-                   "username are currently not supported, unfortunately.\n\n" \
+                   "Note that the name must not contain spaces. If your friend's name does contain spaces, just " \
+                   "type out their name only up to the first space and see if that works. \n\n" \
                    "To see all your debts, use: /debts\n" \
                    "To see debts with a specific person, use: /debts _username_\n" \
                    "To see a transaction history, use: /history _username_"
