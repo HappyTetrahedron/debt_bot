@@ -125,7 +125,8 @@ class PollBot:
 
             return msg, None, None, markup
 
-        return self.make_transaction(sender, recipient, amount, reason), None
+        msg, other_id, other_msg = self.make_transaction(sender, recipient, amount, reason)
+        return msg, other_id, other_msg, None
 
     def find_potential_recipients(self, recipient_str, callback_data):
         potential_recipients = self.db.query("SELECT * FROM users "
