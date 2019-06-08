@@ -51,6 +51,7 @@ AFFIRMATIONS = [
 HISTORY_CMD = "h"
 DEBT_CMD = "d"
 GENERAL_CMD = "g"
+ALIAS_CMD = "a"
 
 
 class PollBot:
@@ -281,6 +282,28 @@ class PollBot:
         recipient = users.find_one(username_lower=username.lower())
         return recipient
 
+    def register_alias(self, owner_id, target_user, alias):
+        aliases = self.db['aliases']
+        old_alias = self.get_alias(owner_id, alias)
+        new_alias = {
+            'owner_id': owner_id,
+            'target_id': target_user['user_id'],
+            'alias': alias.strip(),
+        }
+
+        aliases.upsert(new_alias, ['owner_id', 'alias'])
+
+        return "Your alias '{}' has been {} to point to {} {}.".format(
+            alias,
+            "updated" if old_alias else "created",
+            target_user['first_name'] or "",
+            target_user['last_name'] or "",
+        )
+
+    def get_alias(self, owner_id, alias):
+        aliases = self.db['aliases']
+        return aliases.find_one(owner_id=owner_id, alias=alias)
+
     # Conversation handlers:
     def handle_register(self, bot, update):
         if self.register_user(update.message.from_user, force=True):
@@ -408,7 +431,33 @@ class PollBot:
         update.message.reply_text(reply, reply_markup=markup)
 
     def handle_alias(self, bot, update):
-        cmd = update.message.text.split()[1:]
+        message = update.message.text.strip().lower()
+        if message == "/alias":
+            pass  # TODO list all aliases
+        match = ALIAS_PATTERN.match(message)
+        if not match:
+            update.message.reply_text("I'm sorry, I couldn't understand that. Try the following:\n"
+                                      "/alias nickname = @username")
+            return
+        groups = match.groups()
+        alias = groups[0]
+        username = groups[1]
+
+        users = self.db['users']
+        target_user = users.find_one(username_lower=username.lower())
+
+        if not target_user:
+            callback_data = ":{}".format(alias)
+            msg, markup = self.find_potential_recipients(username, ALIAS_CMD + ":{}" + callback_data)
+            if not msg:
+                update.message.reply_text("Sorry, I don't know who {} is. Maybe you have to ask them to register?"
+                                          .format(username))
+                return
+            update.message.reply_text(msg, reply_markup=markup)
+            return
+
+        self.register_alias(update.message.from_user.id, target_user, alias)
+
 
 
     # Help command handler
