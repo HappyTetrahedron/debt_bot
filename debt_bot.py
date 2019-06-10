@@ -30,7 +30,7 @@ X_TO_ME_PATTERN = re.compile(
 )
 
 ALIAS_PATTERN = re.compile(
-    '^\/alias\s+(.+?)\s*=\s*(.+?)\s*$',
+    '^\/alias\s+(.+?)\s*=\s*@?(.+?)\s*$',
     flags=re.I
 )
 
@@ -135,12 +135,27 @@ class PollBot:
         return msg, other_id, other_msg, None
 
     def find_potential_recipients(self, recipient_str, callback_data):
-        potential_recipients = self.db.query("SELECT * FROM users "
-                                             "WHERE first_name LIKE '{}%' "
-                                             "OR last_name LIKE '{}%' "
-                                             "OR first_name + ' ' + last_name LIKE '{}%'".format(
-            recipient_str, recipient_str, recipient_str
-        ))
+        recipient_str = recipient_str.strip().split()
+
+        if len(recipient_str) < 2:
+            recipient_str = ' '.join(recipient_str)
+            potential_recipients = self.db.query("SELECT * FROM users "
+                                                 "WHERE first_name LIKE '{}%' "
+                                                 "OR last_name LIKE '{}%' "
+                                                 "OR first_name + ' ' + last_name LIKE '{}%'".format(
+                recipient_str, recipient_str, recipient_str
+            ))
+        else:
+
+            first = recipient_str[0]
+            last = recipient_str[-1]
+            potential_recipients = self.db.query("SELECT * FROM users "
+                                                 "WHERE (first_name LIKE '{}%' "
+                                                 "AND last_name LIKE '%{}%') "
+                                                 "OR first_name + ' ' + last_name LIKE '{}%'".format(
+                first, last, ' '.join(recipient_str)
+            ))
+            recipient_str = ' '.join(recipient_str)
 
         buttons = []
         for row in potential_recipients:
@@ -282,6 +297,11 @@ class PollBot:
         recipient = users.find_one(username_lower=username.lower())
         return recipient
 
+    def get_user(self, user_id):
+        users = self.db['users']
+        recipient = users.find_one(user_id=user_id)
+        return recipient
+
     def register_alias(self, owner_id, target_user, alias):
         aliases = self.db['aliases']
         old_alias = self.get_alias(owner_id, alias)
@@ -303,6 +323,26 @@ class PollBot:
     def get_alias(self, owner_id, alias):
         aliases = self.db['aliases']
         return aliases.find_one(owner_id=owner_id, alias=alias)
+
+    def delete_alias(self, owner_id, alias):
+        aliases = self.db['aliases']
+        aliases.delete(owner_id=owner_id, alias=alias)
+
+    def get_all_aliases(self, owner_id):
+        aliases = self.db['aliases']
+        users = self.db['users']
+        all_aliases = aliases.find(owner_id=owner_id)
+
+        str_aliases = []
+        for alias in all_aliases:
+            target_user = users.find_one(user_id=alias['target_id'])
+            str_aliases.append("{} points to {} {}".format(
+                alias['alias'],
+                target_user['first_name'] or "",
+                target_user['last_name'] or "",
+            ))
+
+        return str_aliases
 
     # Conversation handlers:
     def handle_register(self, bot, update):
@@ -416,6 +456,14 @@ class PollBot:
         if cmd == DEBT_CMD:
             reply = self.compose_debt(query.from_user, recipient)
 
+        if cmd == ALIAS_CMD:
+            if len(data) < 3:
+                query.answer("This button is broken, sorry.")
+                return
+            alias = data[2]
+            reply = self.register_alias(query.from_user.id, recipient, alias)
+            query.answer("Alias created.")
+
         bot.edit_message_text(text=reply, message_id=message_id, chat_id=chat_id)
 
     def handle_message(self, bot, update):
@@ -433,7 +481,14 @@ class PollBot:
     def handle_alias(self, bot, update):
         message = update.message.text.strip().lower()
         if message == "/alias":
-            pass  # TODO list all aliases
+            all_aliases = self.get_all_aliases(update.message.from_user.id)
+            if not all_aliases:
+                update.message.reply_text("You don't seem to have any aliases. "
+                                          "You can create them by typing\n"
+                                          "/alias nickname = @username")
+                return
+            update.message.reply_text("Your aliases:\n\n{}".format('\n'.join(all_aliases)))
+            return
         match = ALIAS_PATTERN.match(message)
         if not match:
             update.message.reply_text("I'm sorry, I couldn't understand that. Try the following:\n"
@@ -456,9 +511,31 @@ class PollBot:
             update.message.reply_text(msg, reply_markup=markup)
             return
 
-        self.register_alias(update.message.from_user.id, target_user, alias)
+        response = self.register_alias(update.message.from_user.id, target_user, alias)
+        update.message.reply_text(response)
 
+    def handle_unalias(self, bot, update):
+        message = update.message.text.strip().lower()
+        message_parts = message.split(maxsplit=1)
 
+        if len(message_parts) < 2:
+            update.message.reply_text("Sorry, I don't understand which alias you want to delete.\n"
+                                      "Try: /unalias nickname")
+            return
+        alias = message_parts[1]
+        old_alias = self.get_alias(update.message.from_user.id, alias)
+
+        if not old_alias:
+            update.message.reply_text("You don't seem to have an alias named {}.".format(alias))
+            return
+
+        self.delete_alias(update.message.from_user.id, alias)
+        target_user = self.get_user(old_alias['target_id'])
+        update.message.reply_text("Your alias '{}' for {} {} has been deleted.".format(
+            alias,
+            target_user['first_name'] or "",
+            target_user['last_name'] or "",
+        ))
 
     # Help command handler
     def handle_help(self, bot, update):
@@ -505,6 +582,7 @@ class PollBot:
         dp.add_handler(CommandHandler("history", self.handle_history))
 
         dp.add_handler(CommandHandler("alias", self.handle_alias))
+        dp.add_handler(CommandHandler("unalias", self.handle_unalias))
 
         dp.add_handler(CommandHandler("help", self.handle_help))
 
