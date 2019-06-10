@@ -29,6 +29,12 @@ X_TO_ME_PATTERN = re.compile(
     flags=re.I
 )
 
+# Match this one last
+SHORTHAND_PATTERN = re.compile(
+    '^@?(.+?)\s*(-?\d+\.?\d*)\s*(.+)?$',
+    flags=re.I
+)
+
 ALIAS_PATTERN = re.compile(
     '^\/alias\s+(.+?)\s*=\s*@?(.+?)\s*$',
     flags=re.I
@@ -101,14 +107,23 @@ class PollBot:
                 amount = float(amount_str) * -1  # direction in the regex is reversed, so unreverse here for uniformity
             else:
                 match = I_GIVE_X_PATTERN.match(message)
-                if not match:
-                    return None, None, None
-                groups = match.groups()
-                direction = groups[0]
-                amount_str = groups[2]
-                recipient = groups[1]
-                reason = groups[3]
-                amount = float(amount_str)
+                if match:
+                    groups = match.groups()
+                    direction = groups[0]
+                    amount_str = groups[2]
+                    recipient = groups[1]
+                    reason = groups[3]
+                    amount = float(amount_str)
+                else:
+                    match = SHORTHAND_PATTERN.match(message)
+                    if not match:
+                        return None, None, None
+                    groups = match.groups()
+                    direction = 'give'
+                    amount_str = groups[1]
+                    recipient = groups[0]
+                    reason = 'for ' + groups[2] if groups[2] else None
+                    amount = float(amount_str)
 
         if RECEIVE_PATTERN.match(direction):
             amount *= -1
@@ -119,11 +134,17 @@ class PollBot:
         amount, recipient_str, reason = self.parse_message(message)
         if not recipient_str:
             return "Sorry, I could not understand your message at all :(", None, None, None
+
+        alias = self.get_alias(sender.id, recipient_str.strip().lower())
         users = self.db['users']
-        recipient = users.find_one(username_lower=recipient_str.lower())
+
+        if alias:
+            recipient = users.find_one(user_id=alias['target_id'])
+        else:
+            recipient = users.find_one(username_lower=recipient_str.lower())
 
         if not recipient:
-            callback_data = ":{}:{}".format(amount, reason)
+            callback_data = ":{}:{}".format(amount, reason or "")
             msg, markup = self.find_potential_recipients(recipient_str, GENERAL_CMD + ":{}" + callback_data)
 
             if not msg:
@@ -135,27 +156,31 @@ class PollBot:
         return msg, other_id, other_msg, None
 
     def find_potential_recipients(self, recipient_str, callback_data):
-        recipient_str = recipient_str.strip().split()
+        recipient_parts = recipient_str.strip().split()
+        recipient_str = " ".join(recipient_parts)
 
-        if len(recipient_str) < 2:
-            recipient_str = ' '.join(recipient_str)
+        potential_recipients = None
+        if len(recipient_parts) >= 2:
+            logger.info("First and last name")
+            first = recipient_parts[0]
+            last = recipient_parts[-1]
+            potential_recipients = self.db.query("SELECT * FROM users "
+                                                 "WHERE (first_name LIKE '{}%' "
+                                                 "AND last_name LIKE '%{}%') "
+                                                 "OR first_name + ' ' + last_name LIKE '{}%'".format(
+                first, last, recipient_str
+            ))
+            potential_recipients = list(potential_recipients)  # fuck this stupid BS
+
+        if not potential_recipients:
+            logger.info("First or last name")
             potential_recipients = self.db.query("SELECT * FROM users "
                                                  "WHERE first_name LIKE '{}%' "
                                                  "OR last_name LIKE '{}%' "
                                                  "OR first_name + ' ' + last_name LIKE '{}%'".format(
                 recipient_str, recipient_str, recipient_str
             ))
-        else:
 
-            first = recipient_str[0]
-            last = recipient_str[-1]
-            potential_recipients = self.db.query("SELECT * FROM users "
-                                                 "WHERE (first_name LIKE '{}%' "
-                                                 "AND last_name LIKE '%{}%') "
-                                                 "OR first_name + ' ' + last_name LIKE '{}%'".format(
-                first, last, ' '.join(recipient_str)
-            ))
-            recipient_str = ' '.join(recipient_str)
 
         buttons = []
         for row in potential_recipients:
@@ -190,7 +215,7 @@ class PollBot:
                                 recipient['first_name'],
                                 amount)
         if reason:
-            msg += " for {}".format(reason)
+            msg += " {}".format(reason)
         msg += ".\n\n"
 
         msg += self.get_debt_string(sender.id, recipient['user_id'], recipient['first_name'], 'now')
@@ -200,7 +225,7 @@ class PollBot:
                                   sender.first_name,
                                   -amount)
         if reason:
-            other += " for {}".format(reason)
+            other += " {}".format(reason)
         other += ".\n\n"
 
         other += self.get_debt_string(recipient['user_id'], sender.id, sender.first_name, 'now')
@@ -255,7 +280,7 @@ class PollBot:
                                         name,
                                         item['amount'] if item['creditor'] == uid1 else -item['amount'])
             if 'reason' in item and item['reason']:
-                string += " for {}".format(item['reason'])
+                string += " {}".format(item['reason'])
             string += ".\n"
 
         if not string:
@@ -353,7 +378,7 @@ class PollBot:
             update.message.reply_text("Looks like you're already registered. You're good to go!")
 
     def handle_history(self, bot, update):
-        arguments = update.message.text.split()
+        arguments = update.message.text.split(maxsplit=1)
 
         if len(arguments) < 2:
             update.message.reply_text("Please give me the name of the person for which you want to know "
@@ -362,7 +387,11 @@ class PollBot:
         username = arguments[1]
         if username.startswith('@'):
             username = username[1:]
-        recipient = self.get_user_by_name(username)
+        alias = self.get_alias(update.message.from_user.id, username.strip().lower())
+        if alias:
+            recipient = self.get_user(user_id=alias['target_id'])
+        else:
+            recipient = self.get_user_by_name(username)
         if not recipient:
             msg, markup = self.find_potential_recipients(username, HISTORY_CMD + ':{}')
             if not msg:
@@ -383,13 +412,18 @@ class PollBot:
         return msg
 
     def handle_debts(self, bot, update):
-        arguments = update.message.text.split()
+        arguments = update.message.text.split(maxsplit=1)
 
         if len(arguments) > 1:
             username = arguments[1]
             if username.startswith('@'):
                 username = username[1:]
-            recipient = self.get_user_by_name(username)
+
+            alias = self.get_alias(update.message.from_user.id, username.strip().lower())
+            if alias:
+                recipient = self.get_user(user_id=alias['target_id'])
+            else:
+                recipient = self.get_user_by_name(username)
             if not recipient:
                 msg, markup = self.find_potential_recipients(username, DEBT_CMD + ':{}')
                 if not msg:
