@@ -580,11 +580,13 @@ class PollBot:
                    "I gave 15 to bob14 for pizza \n" \
                    "bob14 owes me 40 for groceries \n" \
                    "bob14 gave me 12.30 for the cinema ticket\n\n" \
-                   "Note that the name must not contain spaces. If your friend's name does contain spaces, just " \
-                   "type out their name only up to the first space and see if that works. \n\n" \
                    "To see all your debts, use: /debts\n" \
                    "To see debts with a specific person, use: /debts _username_\n" \
-                   "To see a transaction history, use: /history _username_"
+                   "To see a transaction history, use: /history _username_\n" \
+                   "To create an alias, use: /alias _nickname_ = _username_\n" \
+                   "To delete an alias, use: /unalias _nickname_\n" \
+                   "You can use the nickname in place of the username for any other command after creating" \
+                   "an alias."
 
         update.message.reply_text(helptext, parse_mode="Markdown")
 
