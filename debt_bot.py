@@ -161,7 +161,6 @@ class PollBot:
 
         potential_recipients = None
         if len(recipient_parts) >= 2:
-            logger.info("First and last name")
             first = recipient_parts[0]
             last = recipient_parts[-1]
             potential_recipients = self.db.query("SELECT * FROM users "
@@ -173,7 +172,6 @@ class PollBot:
             potential_recipients = list(potential_recipients)  # fuck this stupid BS
 
         if not potential_recipients:
-            logger.info("First or last name")
             potential_recipients = self.db.query("SELECT * FROM users "
                                                  "WHERE first_name LIKE '{}%' "
                                                  "OR last_name LIKE '{}%' "
