@@ -56,7 +56,7 @@ AFFIRMATIONS = [
 
 HISTORY_CMD = "h"
 DEBT_CMD = "d"
-GENERAL_CMD = "g"
+TRANSACTION_CMD = "g"
 ALIAS_CMD = "a"
 
 
@@ -128,107 +128,26 @@ class PollBot:
         if RECEIVE_PATTERN.match(direction):
             amount *= -1
 
-        return amount, recipient, reason
+        return str(amount), recipient, reason or ""
 
-    def analyze_message(self, message, sender):
-        amount, recipient_str, reason = self.parse_message(message)
-        if not recipient_str:
-            return "Sorry, I could not understand your message at all :(", None, None, None
-
-        alias = self.get_alias(sender.id, recipient_str.strip().lower())
-        users = self.db['users']
-
-        if alias:
-            recipient = users.find_one(user_id=alias['target_id'])
-        else:
-            recipient = users.find_one(username_lower=recipient_str.lower())
-
+    def send_message(self, bot, message, recipient=None):
         if not recipient:
-            callback_data = ":{}:{}".format(amount, reason or "")
-            msg, markup = self.find_potential_recipients(recipient_str, GENERAL_CMD + ":{}" + callback_data)
+            if (not isinstance(message, dict)) or 'chat_id' not in message:
+                raise ValueError("Unknown recipient")
 
-            if not msg:
-                return "Sorry, I don't know who {} is. Maybe you have to ask them to register?".format(recipient_str), None, None, None
-
-            return msg, None, None, markup
-
-        msg, other_id, other_msg = self.make_transaction(sender, recipient, amount, reason)
-        return msg, other_id, other_msg, None
-
-    def find_potential_recipients(self, recipient_str, callback_data):
-        recipient_parts = recipient_str.strip().split()
-        recipient_str = " ".join(recipient_parts)
-
-        potential_recipients = None
-        if len(recipient_parts) >= 2:
-            first = recipient_parts[0]
-            last = recipient_parts[-1]
-            potential_recipients = self.db.query("SELECT * FROM users "
-                                                 "WHERE (first_name LIKE '{}%' "
-                                                 "AND last_name LIKE '%{}%') "
-                                                 "OR first_name + ' ' + last_name LIKE '{}%'".format(
-                first, last, recipient_str
-            ))
-            potential_recipients = list(potential_recipients)  # fuck this stupid BS
-
-        if not potential_recipients:
-            potential_recipients = self.db.query("SELECT * FROM users "
-                                                 "WHERE first_name LIKE '{}%' "
-                                                 "OR last_name LIKE '{}%' "
-                                                 "OR first_name + ' ' + last_name LIKE '{}%'".format(
-                recipient_str, recipient_str, recipient_str
-            ))
-
-
-        buttons = []
-        for row in potential_recipients:
-            buttons.append([
-                InlineKeyboardButton("{} {}".format(row['first_name'] if row['first_name'] else "",
-                                                    row['last_name'] if row['last_name'] else ""),
-                                     callback_data=callback_data.format(
-                                         row['user_id']
-                                     ))
-            ])
-        if len(buttons) == 0:
-            return None, None
-        buttons.append([InlineKeyboardButton("None of these people", callback_data=callback_data.format('0'))])
-        markup = InlineKeyboardMarkup(buttons)
-        return "{} doesn't appear to be a valid username, but I found some people that could be them. \n" \
-               "Please select them from below:".format(recipient_str), markup
-
-    def make_transaction(self, sender, recipient, amount, reason):
-        transaction = {
-            'creditor': sender.id if amount > 0 else recipient['user_id'],
-            'debitor': recipient['user_id'] if amount > 0 else sender.id,
-            'amount': abs(amount),
-            'reason': reason,
-            'timestamp': datetime.datetime.now(),
-        }
-
-        transactions = self.db['transactions']
-        transactions.insert(transaction)
-
-        msg = self.bidir_format("You gave {} {:.2f}",
-                                "{} gave you {:.2f}",
-                                recipient['first_name'],
-                                amount)
-        if reason:
-            msg += " {}".format(reason)
-        msg += ".\n\n"
-
-        msg += self.get_debt_string(sender.id, recipient['user_id'], recipient['first_name'], 'now')
-
-        other = self.bidir_format("{} got {:.2f} from you",
-                                  "{} gave you {:.2f}",
-                                  sender.first_name,
-                                  -amount)
-        if reason:
-            other += " {}".format(reason)
-        other += ".\n\n"
-
-        other += self.get_debt_string(recipient['user_id'], sender.id, sender.first_name, 'now')
-
-        return msg, recipient['user_id'], other
+        if isinstance(message, dict):
+            bot.send_message(
+                chat_id=recipient or message['chat_id'],
+                text=message.get('message'),
+                reply_markup=message.get('markup'),
+            )
+            if 'other_message' in message:
+                self.send_message(bot, message['other_message'])
+        else:
+            bot.send_message(
+                chat_id=recipient,
+                text=message,
+            )
 
     def get_debt(self, uid1, uid2):
         transactions = self.db['transactions']
@@ -248,7 +167,7 @@ class PollBot:
         if word:
             word += " "
         debt = self.get_debt(uid1, uid2)
-        if debt == 0:
+        if abs(debt) <= 0.001:
             return "You and {} are {}even.".format(name, word)
         return self.bidir_format("{} " + word + "owes you {:.2f}.",
                                  "You " + word + "owe {} {:.2f}.",
@@ -325,24 +244,6 @@ class PollBot:
         recipient = users.find_one(user_id=user_id)
         return recipient
 
-    def register_alias(self, owner_id, target_user, alias):
-        aliases = self.db['aliases']
-        old_alias = self.get_alias(owner_id, alias)
-        new_alias = {
-            'owner_id': owner_id,
-            'target_id': target_user['user_id'],
-            'alias': alias.strip(),
-        }
-
-        aliases.upsert(new_alias, ['owner_id', 'alias'])
-
-        return "Your alias '{}' has been {} to point to {} {}.".format(
-            alias,
-            "updated" if old_alias else "created",
-            target_user['first_name'] or "",
-            target_user['last_name'] or "",
-        )
-
     def get_alias(self, owner_id, alias):
         aliases = self.db['aliases']
         return aliases.find_one(owner_id=owner_id, alias=alias)
@@ -367,6 +268,187 @@ class PollBot:
 
         return str_aliases
 
+    # Commands
+    def dispatch_command_for_user(self, command, initiator_id, username_str, other_args=None, use_alias=True):
+        if not other_args:
+            other_args = []
+        username_str = username_str.strip().lower()
+        alias = None
+
+        if use_alias:
+            alias = self.get_alias(initiator_id, username_str)
+
+        users = self.db['users']
+        if alias:
+            target_user = users.find_one(user_id=alias['target_id'])
+        else:
+            target_user = users.find_one(username_lower=username_str)
+
+        if target_user:
+            return self.dispatch_command(command, initiator_id, target_user, other_args)
+
+        else:
+            callback_data = command + ":{}:" + ':'.join(other_args)
+
+            recipient_parts = username_str.split()
+            recipient_str = " ".join(recipient_parts)
+
+            potential_recipients = None
+            if len(recipient_parts) >= 2:
+                first = recipient_parts[0]
+                last = recipient_parts[-1]
+                potential_recipients = self.db.query(
+                    "SELECT * FROM users "
+                    "WHERE (first_name LIKE '{}%' "
+                    "AND last_name LIKE '%{}%') "
+                    "OR first_name + ' ' + last_name LIKE '{}%'".format(
+                        first, last, recipient_str
+                    )
+                )
+                potential_recipients = list(potential_recipients)  # fuck this stupid BS
+
+            if not potential_recipients:
+                potential_recipients = self.db.query(
+                    "SELECT * FROM users "
+                    "WHERE first_name LIKE '{}%' "
+                    "OR last_name LIKE '{}%' "
+                    "OR first_name + ' ' + last_name LIKE '{}%'".format(
+                        recipient_str, recipient_str, recipient_str
+                    )
+                )
+
+            buttons = []
+            for row in potential_recipients:
+                buttons.append([
+                    InlineKeyboardButton("{} {}".format(row['first_name'] if row['first_name'] else "",
+                                                        row['last_name'] if row['last_name'] else ""),
+                                         callback_data=callback_data.format(
+                                             row['user_id']
+                                         ))
+                ])
+            if len(buttons) == 0:
+                return "I'm sorry, I couldn't find anyone named {}. Perhaps you need to ask them to register?".format(
+                    recipient_str
+                )
+            buttons.append([InlineKeyboardButton("None of these people", callback_data=callback_data.format('0'))])
+            markup = InlineKeyboardMarkup(buttons)
+            return {
+                "message": "{} doesn't appear to be a valid username, but I found some people that could be them. \n" \
+                           "Please select them from below:".format(recipient_str),
+                "markup": markup,
+            }
+
+    def dispatch_command(self, command, initiator_id, target_user, args):
+        if command == TRANSACTION_CMD:
+            if len(args) < 2:
+                return "Aw no, something went wrong. Please try again."
+
+            amount = float(args[0])
+            reason = args[1] or None
+
+            return self.transaction_command(initiator_id, target_user, amount, reason)
+
+        if command == HISTORY_CMD:
+            return self.history_command(initiator_id, target_user)
+
+        if command == DEBT_CMD:
+            return self.debt_command(initiator_id, target_user)
+
+        if command == ALIAS_CMD:
+            if len(args) < 1:
+                return "Something is broken, sorry. Please try again."
+            alias = args[0]
+            return self.alias_command(initiator_id, target_user, alias)
+
+    def transaction_command(self, sender_id, recipient, amount, reason):
+        transaction = {
+            'creditor': sender_id if amount > 0 else recipient['user_id'],
+            'debitor': recipient['user_id'] if amount > 0 else sender_id,
+            'amount': abs(amount),
+            'reason': reason,
+            'timestamp': datetime.datetime.now(),
+        }
+
+        transactions = self.db['transactions']
+        transactions.insert(transaction)
+
+        msg = self.bidir_format("You gave {} {:.2f}",
+                                "{} gave you {:.2f}",
+                                recipient['first_name'],
+                                amount)
+        if reason:
+            msg += " {}".format(reason)
+        msg += ".\n\n"
+
+        msg += self.get_debt_string(sender_id, recipient['user_id'], recipient['first_name'], 'now')
+        sender = self.get_user(sender_id)
+
+        other = self.bidir_format("{} got {:.2f} from you",
+                                  "{} gave you {:.2f}",
+                                  sender['first_name'],
+                                  -amount)
+        if reason:
+            other += " {}".format(reason)
+        other += ".\n\n"
+
+        other += self.get_debt_string(recipient['user_id'], sender_id, sender['first_name'], 'now')
+
+        if recipient['user_id'] is None:
+            return "Oh no, something went wrong"
+
+        return {
+            'answer': self.get_affirmation(),
+            'message': msg,
+            'other_message': {
+                'chat_id': recipient['user_id'],
+                'message': other
+            }
+        }
+
+    def history_command(self, sender_id, recipient):
+        msg = self.get_debt_history_string(sender_id,
+                                           recipient['user_id'],
+                                           recipient['first_name'])
+        msg += '\n'
+        msg += self.get_debt_string(sender_id, recipient['user_id'], recipient['first_name'])
+        return {
+            'message': msg,
+            'answer': self.get_affirmation()
+        }
+
+    def debt_command(self, sender_id, recipient):
+        msg = self.get_debt_string(sender_id,
+                                   recipient['user_id'],
+                                   recipient['first_name'],
+                                   'currently')
+        return {
+            'message': msg,
+            'answer': self.get_affirmation(),
+        }
+
+    def alias_command(self, owner_id, target_user, alias):
+        aliases = self.db['aliases']
+        old_alias = self.get_alias(owner_id, alias)
+        new_alias = {
+            'owner_id': owner_id,
+            'target_id': target_user['user_id'],
+            'alias': alias.strip(),
+        }
+
+        aliases.upsert(new_alias, ['owner_id', 'alias'])
+
+        msg = "Your alias '{}' has been {} to point to {} {}.".format(
+            alias,
+            "updated" if old_alias else "created",
+            target_user['first_name'] or "",
+            target_user['last_name'] or "",
+            )
+
+        return {
+            'message': msg,
+            'answer': 'Alias created.'
+        }
+
     # Conversation handlers:
     def handle_register(self, bot, update):
         if self.register_user(update.message.from_user, force=True):
@@ -385,29 +467,12 @@ class PollBot:
         username = arguments[1]
         if username.startswith('@'):
             username = username[1:]
-        alias = self.get_alias(update.message.from_user.id, username.strip().lower())
-        if alias:
-            recipient = self.get_user(user_id=alias['target_id'])
-        else:
-            recipient = self.get_user_by_name(username)
-        if not recipient:
-            msg, markup = self.find_potential_recipients(username, HISTORY_CMD + ':{}')
-            if not msg:
-                update.message.reply_text("Sorry, I don't know who {} is.".format(username))
-                return
-            update.message.reply_text(msg, reply_markup=markup)
-            return
 
-        msg = self.compose_history(update.message.from_user, recipient)
-        update.message.reply_text(msg)
-
-    def compose_history(self, sender, recipient):
-        msg = self.get_debt_history_string(sender.id,
-                                           recipient['user_id'],
-                                           recipient['first_name'])
-        msg += '\n'
-        msg += self.get_debt_string(sender.id, recipient['user_id'], recipient['first_name'])
-        return msg
+        self.send_message(
+            bot,
+            self.dispatch_command_for_user(HISTORY_CMD, update.message.from_user.id, username),
+            update.message.from_user.id,
+        )
 
     def handle_debts(self, bot, update):
         arguments = update.message.text.split(maxsplit=1)
@@ -417,30 +482,14 @@ class PollBot:
             if username.startswith('@'):
                 username = username[1:]
 
-            alias = self.get_alias(update.message.from_user.id, username.strip().lower())
-            if alias:
-                recipient = self.get_user(user_id=alias['target_id'])
-            else:
-                recipient = self.get_user_by_name(username)
-            if not recipient:
-                msg, markup = self.find_potential_recipients(username, DEBT_CMD + ':{}')
-                if not msg:
-                    update.message.reply_text("Sorry, I don't know who {} is.".format(username))
-                    return
-                update.message.reply_text(msg, reply_markup=markup)
-                return
-            msg = self.compose_debt(update.message.from_user, recipient)
-            update.message.reply_text(msg)
-            return
+            self.send_message(
+                bot,
+                self.dispatch_command_for_user(DEBT_CMD, update.message.from_user.id, username),
+                update.message.from_user.id,
+            )
 
-        update.message.reply_text(self.get_all_debts(update.message.from_user.id))
-
-    def compose_debt(self, sender, recipient):
-        msg = self.get_debt_string(sender.id,
-                                   recipient['user_id'],
-                                   recipient['first_name'],
-                                   'currently')
-        return msg
+        else:
+            update.message.reply_text(self.get_all_debts(update.message.from_user.id))
 
     def handle_inline_button(self, bot, update):
         query = update.callback_query
@@ -449,6 +498,7 @@ class PollBot:
 
         cmd = data[0]
         userid = data[1]
+        args = data[2:]
 
         message_id = query.message.message_id
         chat_id = query.message.chat.id
@@ -466,49 +516,35 @@ class PollBot:
             query.answer("Uh oh, something went pretty wrong here")
             return
 
-        if cmd == GENERAL_CMD:
-            if len(data) < 4:
-                query.answer("Something's wrong with this button.")
-                return
+        reply = self.dispatch_command(cmd, query.from_user.id, recipient, args)
 
-            amount = float(data[2])
-            reason = data[3]
-
-            reply, other_user_id, other_notification = self.make_transaction(query.from_user, recipient, amount, reason)
-
-            if other_user_id is None:
-                query.answer("Oh no, something went wrong")
-                return
-
-            bot.send_message(chat_id=other_user_id, text=other_notification)
-
-        if cmd == HISTORY_CMD:
-            reply = self.compose_history(query.from_user, recipient)
-
-        if cmd == DEBT_CMD:
-            reply = self.compose_debt(query.from_user, recipient)
-
-        if cmd == ALIAS_CMD:
-            if len(data) < 3:
-                query.answer("This button is broken, sorry.")
-                return
-            alias = data[2]
-            reply = self.register_alias(query.from_user.id, recipient, alias)
-            query.answer("Alias created.")
-
-        bot.edit_message_text(text=reply, message_id=message_id, chat_id=chat_id)
+        if isinstance(reply, dict):
+            if 'message' in reply:
+                bot.edit_message_text(text=reply['message'], message_id=message_id, chat_id=chat_id,
+                                      reply_markup=reply.get('markup'))
+            if 'answer' in reply:
+                query.answer(reply['answer'])
+            if 'other_message' in reply:
+                self.send_message(bot, reply['other_message'])
 
     def handle_message(self, bot, update):
         if update.message.text is None:
             update.message.reply_text(self.get_affirmation())
             return
         self.register_user(update.message.from_user)
-        reply, other_user_id, other_notification, markup = self.analyze_message(update.message.text, update.message.from_user)
-        if other_user_id is None:
-            update.message.reply_text(reply, reply_markup=markup)
-            return
-        bot.send_message(chat_id=other_user_id, text=other_notification)
-        update.message.reply_text(reply, reply_markup=markup)
+
+        amount, recipient_str, reason = self.parse_message(update.message.text)
+        if not recipient_str:
+            update.message.reply_text("Sorry, I could not understand your message at all :(")
+
+        self.send_message(
+            bot,
+            self.dispatch_command_for_user(TRANSACTION_CMD,
+                                           update.message.from_user.id,
+                                           recipient_str,
+                                           [amount, reason]),
+            update.message.from_user.id,
+        )
 
     def handle_alias(self, bot, update):
         message = update.message.text.strip().lower()
@@ -530,21 +566,14 @@ class PollBot:
         alias = groups[0]
         username = groups[1]
 
-        users = self.db['users']
-        target_user = users.find_one(username_lower=username.lower())
+        response = self.dispatch_command_for_user(
+            ALIAS_CMD,
+            update.message.from_user.id,
+            username, [alias],
+            use_alias=False
+        )
 
-        if not target_user:
-            callback_data = ":{}".format(alias)
-            msg, markup = self.find_potential_recipients(username, ALIAS_CMD + ":{}" + callback_data)
-            if not msg:
-                update.message.reply_text("Sorry, I don't know who {} is. Maybe you have to ask them to register?"
-                                          .format(username))
-                return
-            update.message.reply_text(msg, reply_markup=markup)
-            return
-
-        response = self.register_alias(update.message.from_user.id, target_user, alias)
-        update.message.reply_text(response)
+        self.send_message(bot, response, update.message.from_user.id)
 
     def handle_unalias(self, bot, update):
         message = update.message.text.strip().lower()
@@ -597,7 +626,7 @@ class PollBot:
 
     def run(self, opts):
         with open(opts.config, 'r') as configfile:
-            config = yaml.load(configfile)
+            config = yaml.load(configfile, Loader=yaml.FullLoader)
 
         self.db = dataset.connect('sqlite:///{}'.format(config['db']))
 
