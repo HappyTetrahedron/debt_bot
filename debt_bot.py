@@ -626,7 +626,8 @@ class PollBot:
 
     def run(self, opts):
         with open(opts.config, 'r') as configfile:
-            config = yaml.load(configfile, Loader=yaml.FullLoader)
+            # config = yaml.load(configfile, Loader=yaml.FullLoader)
+            config = yaml.load(configfile)
 
         self.db = dataset.connect('sqlite:///{}'.format(config['db']))
 
