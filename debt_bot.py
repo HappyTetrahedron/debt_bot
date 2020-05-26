@@ -480,6 +480,7 @@ class PollBot:
 
         self.send_message(
             bot,
+            self.dispatch_command_for_user(HISTORY_CMD, update.message.from_user.id, username),
             update.message.from_user.id,
         )
 
