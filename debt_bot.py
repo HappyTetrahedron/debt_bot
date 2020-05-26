@@ -59,6 +59,12 @@ DEBT_CMD = "d"
 TRANSACTION_CMD = "g"
 ALIAS_CMD = "a"
 
+MAX_MESSAGE_LENGTH = 4000
+
+
+def wrap_message(message):
+    return [message[i:i + MAX_MESSAGE_LENGTH] for i in range(0, len(message), MAX_MESSAGE_LENGTH)]
+
 
 class PollBot:
     def __init__(self):
@@ -136,18 +142,22 @@ class PollBot:
                 raise ValueError("Unknown recipient")
 
         if isinstance(message, dict):
-            bot.send_message(
-                chat_id=recipient or message['chat_id'],
-                text=message.get('message'),
-                reply_markup=message.get('markup'),
-            )
+            message_parts = wrap_message(message.get('message'))
+            for part in message_parts:
+                bot.send_message(
+                    chat_id=recipient or message['chat_id'],
+                    text=part,
+                    reply_markup=message.get('markup'),
+                )
             if 'other_message' in message:
                 self.send_message(bot, message['other_message'])
         else:
-            bot.send_message(
-                chat_id=recipient,
-                text=message,
-            )
+            message_parts = wrap_message(message)
+            for part in message_parts:
+                bot.send_message(
+                    chat_id=recipient,
+                    text=part,
+                )
 
     def get_debt(self, uid1, uid2):
         transactions = self.db['transactions']
@@ -470,7 +480,6 @@ class PollBot:
 
         self.send_message(
             bot,
-            self.dispatch_command_for_user(HISTORY_CMD, update.message.from_user.id, username),
             update.message.from_user.id,
         )
 
