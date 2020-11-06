@@ -460,14 +460,14 @@ class PollBot:
         }
 
     # Conversation handlers:
-    def handle_register(self, bot, update):
+    def handle_register(self, update, context):
         if self.register_user(update.message.from_user, force=True):
             update.message.reply_text('Hi! Thanks for registering with Debt Bot. '
                                       'People can now register their debts with you.')
         else:
             update.message.reply_text("Looks like you're already registered. You're good to go!")
 
-    def handle_history(self, bot, update):
+    def handle_history(self, update, context):
         arguments = update.message.text.split(maxsplit=1)
 
         if len(arguments) < 2:
@@ -479,12 +479,12 @@ class PollBot:
             username = username[1:]
 
         self.send_message(
-            bot,
+            context.bot,
             self.dispatch_command_for_user(HISTORY_CMD, update.message.from_user.id, username),
             update.message.from_user.id,
         )
 
-    def handle_debts(self, bot, update):
+    def handle_debts(self, update, context):
         arguments = update.message.text.split(maxsplit=1)
 
         if len(arguments) > 1:
@@ -493,7 +493,7 @@ class PollBot:
                 username = username[1:]
 
             self.send_message(
-                bot,
+                context.bot,
                 self.dispatch_command_for_user(DEBT_CMD, update.message.from_user.id, username),
                 update.message.from_user.id,
             )
@@ -501,7 +501,7 @@ class PollBot:
         else:
             update.message.reply_text(self.get_all_debts(update.message.from_user.id))
 
-    def handle_inline_button(self, bot, update):
+    def handle_inline_button(self, update, context):
         query = update.callback_query
         data = update.callback_query.data
         data = data.split(':', 3)
@@ -515,7 +515,7 @@ class PollBot:
 
         if userid == '0':
             query.answer("Action cancelled")
-            bot.edit_message_text(text="Looks like the person you wanted to find isn't registered :(",
+            context.bot.edit_message_text(text="Looks like the person you wanted to find isn't registered :(",
                                   message_id=message_id,
                                   chat_id=chat_id)
             return
@@ -530,14 +530,14 @@ class PollBot:
 
         if isinstance(reply, dict):
             if 'message' in reply:
-                bot.edit_message_text(text=reply['message'], message_id=message_id, chat_id=chat_id,
+                context.bot.edit_message_text(text=reply['message'], message_id=message_id, chat_id=chat_id,
                                       reply_markup=reply.get('markup'))
             if 'answer' in reply:
                 query.answer(reply['answer'])
             if 'other_message' in reply:
-                self.send_message(bot, reply['other_message'])
+                self.send_message(context.bot, reply['other_message'])
 
-    def handle_message(self, bot, update):
+    def handle_message(self, update, context):
         if update.message.text is None:
             update.message.reply_text(self.get_affirmation())
             return
@@ -548,7 +548,7 @@ class PollBot:
             update.message.reply_text("Sorry, I could not understand your message at all :(")
 
         self.send_message(
-            bot,
+            context.bot,
             self.dispatch_command_for_user(TRANSACTION_CMD,
                                            update.message.from_user.id,
                                            recipient_str,
@@ -556,7 +556,7 @@ class PollBot:
             update.message.from_user.id,
         )
 
-    def handle_alias(self, bot, update):
+    def handle_alias(self, update, context):
         message = update.message.text.strip().lower()
         if message == "/alias":
             all_aliases = self.get_all_aliases(update.message.from_user.id)
@@ -583,9 +583,9 @@ class PollBot:
             use_alias=False
         )
 
-        self.send_message(bot, response, update.message.from_user.id)
+        self.send_message(context.bot, response, update.message.from_user.id)
 
-    def handle_unalias(self, bot, update):
+    def handle_unalias(self, update, context):
         message = update.message.text.strip().lower()
         message_parts = message.split(maxsplit=1)
 
@@ -609,7 +609,7 @@ class PollBot:
         ))
 
     # Help command handler
-    def handle_help(self, bot, update):
+    def handle_help(self, update, context):
         """Send a message when the command /help is issued."""
         helptext = "I'm a debt bot! I can keep track of your debts!\n\n" \
                    "In order to use me, you first have to /register. " \
@@ -630,14 +630,14 @@ class PollBot:
         update.message.reply_text(helptext, parse_mode="Markdown")
 
     # Error handler
-    def handle_error(self, bot, update, error):
+    def handle_error(self, update, context):
         """Log Errors caused by Updates."""
-        logger.warning('Update "%s" caused error "%s"', update, error)
+        logger.warning('Update "%s" caused error "%s"', update, context.error)
 
     def run(self, opts):
         with open(opts.config, 'r') as configfile:
             # config = yaml.load(configfile, Loader=yaml.FullLoader)
-            config = yaml.load(configfile)
+            config = yaml.safe_load(configfile)
 
         self.db = dataset.connect('sqlite:///{}'.format(config['db']))
 
