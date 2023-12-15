@@ -230,7 +230,7 @@ class PollBot:
         summary = ""
         for other in all_others:
             user = users.find_one(user_id=other)
-            str = self.get_debt_string(uid, other, user['first_name'])
+            str = self.get_debt_string(uid, other, "{} {}".format(user['first_name'], user['last_name']))
             if 'even' not in str:
                 summary += str
                 summary += "\n"
@@ -390,7 +390,7 @@ class PollBot:
             msg += " {}".format(reason)
         msg += ".\n\n"
 
-        msg += self.get_debt_string(sender_id, recipient['user_id'], recipient['first_name'], 'now')
+        msg += self.get_debt_string(sender_id, recipient['user_id'], "{} {}".format(recipient['first_name'], recipient['last_name']), 'now')
         sender = self.get_user(sender_id)
 
         other = self.bidir_format("{} got {:.2f} from you",
@@ -401,7 +401,7 @@ class PollBot:
             other += " {}".format(reason)
         other += ".\n\n"
 
-        other += self.get_debt_string(recipient['user_id'], sender_id, sender['first_name'], 'now')
+        other += self.get_debt_string(recipient['user_id'], sender_id, "{} {}".format(sender['first_name'], sender['last_name']), 'now')
 
         if recipient['user_id'] is None:
             return "Oh no, something went wrong"
@@ -420,7 +420,7 @@ class PollBot:
                                            recipient['user_id'],
                                            recipient['first_name'])
         msg += '\n'
-        msg += self.get_debt_string(sender_id, recipient['user_id'], recipient['first_name'])
+        msg += self.get_debt_string(sender_id, recipient['user_id'], "{} {}".format(recipient['first_name']))
         return {
             'message': msg,
             'answer': self.get_affirmation()
@@ -429,7 +429,7 @@ class PollBot:
     def debt_command(self, sender_id, recipient):
         msg = self.get_debt_string(sender_id,
                                    recipient['user_id'],
-                                   recipient['first_name'],
+                                   "{} {}".format(recipient['first_name']),
                                    'currently')
         return {
             'message': msg,
@@ -643,7 +643,7 @@ class PollBot:
 
         """Start the bot."""
         # Create the EventHandler and pass it your bot's token.
-        updater = Updater(config['token'])
+        updater = Updater(config['token'], use_context=True)
 
         # Get the dispatcher to register handlers
         dp = updater.dispatcher
