@@ -230,7 +230,7 @@ class PollBot:
         summary = ""
         for other in all_others:
             user = users.find_one(user_id=other)
-            str = self.get_debt_string(uid, other, "{} {}".format(user['first_name'], user['last_name']))
+            str = self.get_debt_string(uid, other, self.format_name(user))
             if 'even' not in str:
                 summary += str
                 summary += "\n"
@@ -390,7 +390,7 @@ class PollBot:
             msg += " {}".format(reason)
         msg += ".\n\n"
 
-        msg += self.get_debt_string(sender_id, recipient['user_id'], "{} {}".format(recipient['first_name'], recipient['last_name']), 'now')
+        msg += self.get_debt_string(sender_id, recipient['user_id'], self.format_name(recipient), 'now')
         sender = self.get_user(sender_id)
 
         other = self.bidir_format("{} got {:.2f} from you",
@@ -401,7 +401,7 @@ class PollBot:
             other += " {}".format(reason)
         other += ".\n\n"
 
-        other += self.get_debt_string(recipient['user_id'], sender_id, "{} {}".format(sender['first_name'], sender['last_name']), 'now')
+        other += self.get_debt_string(recipient['user_id'], sender_id, self.format_name(sender), 'now')
 
         if recipient['user_id'] is None:
             return "Oh no, something went wrong"
@@ -420,7 +420,7 @@ class PollBot:
                                            recipient['user_id'],
                                            recipient['first_name'])
         msg += '\n'
-        msg += self.get_debt_string(sender_id, recipient['user_id'], "{} {}".format(recipient['first_name']))
+        msg += self.get_debt_string(sender_id, recipient['user_id'], self.format_name(recipient))
         return {
             'message': msg,
             'answer': self.get_affirmation()
@@ -429,7 +429,7 @@ class PollBot:
     def debt_command(self, sender_id, recipient):
         msg = self.get_debt_string(sender_id,
                                    recipient['user_id'],
-                                   "{} {}".format(recipient['first_name']),
+                                   self.format_name(recipient),
                                    'currently')
         return {
             'message': msg,
@@ -585,6 +585,12 @@ class PollBot:
 
         self.send_message(context.bot, response, update.message.from_user.id)
 
+    def format_name(self, user):
+        return "{} {}".format(
+            user["first_name"],
+            user["last_name"] if user["last_name"] else ""
+        ).strip()
+
     def handle_unalias(self, update, context):
         message = update.message.text.strip().lower()
         message_parts = message.split(maxsplit=1)
@@ -632,6 +638,8 @@ class PollBot:
     # Error handler
     def handle_error(self, update, context):
         """Log Errors caused by Updates."""
+        import traceback
+        traceback.print_exception(context.error)
         logger.warning('Update "%s" caused error "%s"', update, context.error)
 
     def run(self, opts):
