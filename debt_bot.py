@@ -16,22 +16,22 @@ logger = logging.getLogger(__name__)
 
 # Match this first, because the X_TO_ME regex will capture stuff that should be parsed by this one.
 I_TO_X_PATTERN = re.compile(
-    '^i?\s*(g[ia]ve|g[eo]t|owe[sd]?)\s+(-?\d+\.?\d*)\s+(?:to|from)?\s*@?(.+?)(?:\s+((?:because(?:\s+of)?|for|in)\s+.*))?$',
+    '^i?\s*(g[ia]ve|g[eo]t|owe[sd]?)\s+(-?\d+\.?\d*)(/\d+)?\s+(?:to|from)?\s*@?(.+?)(?:\s+((?:because(?:\s+of)?|for|in)\s+.*))?$',
     flags=re.I
 )
 I_GIVE_X_PATTERN = re.compile(
-    '^i?\s*(g[ia]ve|owe[sd]?)\s+@?(.+?)\s+(-?\d+\.?\d*)\s*((?:because(?:\s+of)?|for|in)\s*.*)?$',
+    '^i?\s*(g[ia]ve|owe[sd]?)\s+@?(.+?)\s+(-?\d+\.?\d*)(/\d+)?\s*((?:because(?:\s+of)?|for|in)\s*.*)?$',
     flags=re.I
 )
 # This will falsely match the "I gave X to Y" pattern as well, so match the other one before this
 X_TO_ME_PATTERN = re.compile(
-    '^\s*@?(.+?)\s+(g[ia]ve|g[eo]t|owe[sd]?)\s+(?:me)?\s*(-?\d+\.?\d*)(?:\s+(?:to|from)?\s*me\s*)?\s*((?:because(?:\s+of)?|for)?\s*.*)$',
+    '^\s*@?(.+?)\s+(g[ia]ve|g[eo]t|owe[sd]?)\s+(?:me)?\s*(-?\d+\.?\d*)(/\d+)?(?:\s+(?:to|from)?\s*me\s*)?\s*((?:because(?:\s+of)?|for)?\s*.*)$',
     flags=re.I
 )
 
 # Match this one last
 SHORTHAND_PATTERN = re.compile(
-    '^@?(.+?)\s*(-?\d+\.?\d*)\s*(.+)?$',
+    '^@?(.+?)\s*(-?\d+\.?\d*)(/\d+)?\s*(.+)?$',
     flags=re.I
 )
 
@@ -66,7 +66,7 @@ def wrap_message(message):
     return [message[i:i + MAX_MESSAGE_LENGTH] for i in range(0, len(message), MAX_MESSAGE_LENGTH)]
 
 
-class PollBot:
+class DebtBot:
     def __init__(self):
         self.db = None
 
@@ -99,8 +99,9 @@ class PollBot:
             groups = match.groups()
             direction = groups[0]
             amount_str = groups[1]
-            recipient = groups[2]
-            reason = groups[3]
+            divisor_str = groups[2]
+            recipient = groups[3]
+            reason = groups[4]
             amount = float(amount_str)
         else:
             match = X_TO_ME_PATTERN.match(message)
@@ -108,8 +109,9 @@ class PollBot:
                 groups = match.groups()
                 direction = groups[1]
                 amount_str = groups[2]
+                divisor_str = groups[3]
                 recipient = groups[0]
-                reason = groups[3]
+                reason = groups[4]
                 amount = float(amount_str) * -1  # direction in the regex is reversed, so unreverse here for uniformity
             else:
                 match = I_GIVE_X_PATTERN.match(message)
@@ -117,8 +119,9 @@ class PollBot:
                     groups = match.groups()
                     direction = groups[0]
                     amount_str = groups[2]
+                    divisor_str = groups[3]
                     recipient = groups[1]
-                    reason = groups[3]
+                    reason = groups[4]
                     amount = float(amount_str)
                 else:
                     match = SHORTHAND_PATTERN.match(message)
@@ -127,12 +130,16 @@ class PollBot:
                     groups = match.groups()
                     direction = 'give'
                     amount_str = groups[1]
+                    divisor_str = groups[2]
                     recipient = groups[0]
-                    reason = 'for ' + groups[2] if groups[2] else None
+                    reason = 'for ' + groups[3] if groups[3] else None
                     amount = float(amount_str)
 
         if RECEIVE_PATTERN.match(direction):
             amount *= -1
+        if divisor_str:
+            divisor = int(divisor_str.strip('/'))
+            amount = amount / divisor
 
         return str(amount), recipient, reason or ""
 
@@ -684,7 +691,7 @@ class PollBot:
 
 
 def main(opts):
-    PollBot().run(opts)
+    DebtBot().run(opts)
 
 
 if __name__ == '__main__':
