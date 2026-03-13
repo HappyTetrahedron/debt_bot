@@ -16,27 +16,27 @@ logger = logging.getLogger(__name__)
 
 # Match this first, because the X_TO_ME regex will capture stuff that should be parsed by this one.
 I_TO_X_PATTERN = re.compile(
-    '^i?\s*(g[ia]ve|g[eo]t|owe[sd]?)\s+(-?\d+\.?\d*)(/\d+)?\s+(?:to|from)?\s*@?(.+?)(?:\s+((?:because(?:\s+of)?|for|in)\s+.*))?$',
+    '^i?\\s*(g[ia]ve|g[eo]t|owe[sd]?)\\s+(-?\\d+\\.?\\d*)(/\\d+)?\\s+(?:to|from)?\\s*@?(.+?)(?:\\s+((?:because(?:\\s+of)?|for|in)\\s+.*))?$',
     flags=re.I
 )
 I_GIVE_X_PATTERN = re.compile(
-    '^i?\s*(g[ia]ve|owe[sd]?)\s+@?(.+?)\s+(-?\d+\.?\d*)(/\d+)?\s*((?:because(?:\s+of)?|for|in)\s*.*)?$',
+    '^i?\\s*(g[ia]ve|owe[sd]?)\\s+@?(.+?)\\s+(-?\\d+\\.?\\d*)(/\\d+)?\\s*((?:because(?:\\s+of)?|for|in)\\s*.*)?$',
     flags=re.I
 )
 # This will falsely match the "I gave X to Y" pattern as well, so match the other one before this
 X_TO_ME_PATTERN = re.compile(
-    '^\s*@?(.+?)\s+(g[ia]ve|g[eo]t|owe[sd]?)\s+(?:me)?\s*(-?\d+\.?\d*)(/\d+)?(?:\s+(?:to|from)?\s*me\s*)?\s*((?:because(?:\s+of)?|for)?\s*.*)$',
+    '^\\s*@?(.+?)\\s+(g[ia]ve|g[eo]t|owe[sd]?)\\s+(?:me)?\\s*(-?\\d+\\.?\\d*)(/\\d+)?(?:\\s+(?:to|from)?\\s*me\\s*)?\\s*((?:because(?:\\s+of)?|for)?\\s*.*)$',
     flags=re.I
 )
 
 # Match this one last
 SHORTHAND_PATTERN = re.compile(
-    '^@?(.+?)\s*(-?\d+\.?\d*)(/\d+)?\s*(.+)?$',
+    '^@?(.+?)\\s*(-?\\d+\\.?\\d*)(/\\d+)?\\s*(.+)?$',
     flags=re.I
 )
 
 ALIAS_PATTERN = re.compile(
-    '^\/alias\s+(.+?)\s*=\s*@?(.+?)\s*$',
+    '^/alias\\s+(.+?)\\s*=\\s*@?(.+?)\\s*$',
     flags=re.I
 )
 
